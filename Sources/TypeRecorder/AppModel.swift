@@ -9,6 +9,8 @@ final class AppModel: ObservableObject {
     @Published var selectedDate = Date()
     @Published var lastStorageError: String?
     @Published var isDailyResetEnabled: Bool
+    @Published var excludesFunctionalKeysFromStatistics: Bool
+    @Published var includesEscapeReturnDeleteInStatistics: Bool
     @Published private(set) var isMonitoringRunning = false
     @Published private(set) var isMonitoringStarting = false
     @Published private(set) var isKeyboardPermissionGranted = false
@@ -23,6 +25,8 @@ final class AppModel: ObservableObject {
     private var monitorStateSubscription: AnyCancellable?
 
     private static let dailyResetDefaultsKey = "TypeRecorder.Settings.isDailyResetEnabled"
+    private static let excludesFunctionalKeysDefaultsKey = "TypeRecorder.Settings.excludesFunctionalKeysFromStatistics"
+    private static let includesEscapeReturnDeleteDefaultsKey = "TypeRecorder.Settings.includesEscapeReturnDeleteInStatistics"
 
     init() {
         let defaults = UserDefaults.standard
@@ -32,6 +36,8 @@ final class AppModel: ObservableObject {
         } else {
             isDailyResetEnabled = defaults.bool(forKey: Self.dailyResetDefaultsKey)
         }
+        excludesFunctionalKeysFromStatistics = defaults.bool(forKey: Self.excludesFunctionalKeysDefaultsKey)
+        includesEscapeReturnDeleteInStatistics = defaults.bool(forKey: Self.includesEscapeReturnDeleteDefaultsKey)
 
         let createdStore: DatabaseStore
         do {
@@ -103,11 +109,12 @@ final class AppModel: ObservableObject {
 
     private func snapshotAfterPendingRecords() async throws -> AppSnapshot {
         let scope = currentStatisticsScope
+        let filter = currentStatisticsFilter
         return try await withCheckedThrowingContinuation { continuation in
             // 刷新也排到记录队列里执行，保证它一定发生在已排队的按键写入之后。
-            recordQueue.async { [store, scope] in
+            recordQueue.async { [store, scope, filter] in
                 do {
-                    continuation.resume(returning: try store.snapshot(scope: scope))
+                    continuation.resume(returning: try store.snapshot(scope: scope, filter: filter))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -125,6 +132,26 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(isEnabled, forKey: Self.dailyResetDefaultsKey)
         publish {
             self.isDailyResetEnabled = isEnabled
+        }
+        Task {
+            await refresh()
+        }
+    }
+
+    func setExcludesFunctionalKeysFromStatistics(_ isEnabled: Bool) {
+        UserDefaults.standard.set(isEnabled, forKey: Self.excludesFunctionalKeysDefaultsKey)
+        publish {
+            self.excludesFunctionalKeysFromStatistics = isEnabled
+        }
+        Task {
+            await refresh()
+        }
+    }
+
+    func setIncludesEscapeReturnDeleteInStatistics(_ isEnabled: Bool) {
+        UserDefaults.standard.set(isEnabled, forKey: Self.includesEscapeReturnDeleteDefaultsKey)
+        publish {
+            self.includesEscapeReturnDeleteInStatistics = isEnabled
         }
         Task {
             await refresh()
@@ -153,14 +180,22 @@ final class AppModel: ObservableObject {
         isDailyResetEnabled ? .today : .allDates
     }
 
+    private var currentStatisticsFilter: StatisticsFilter {
+        StatisticsFilter(
+            excludesFunctionalKeys: excludesFunctionalKeysFromStatistics,
+            includesEscapeReturnDelete: includesEscapeReturnDeleteInStatistics
+        )
+    }
+
     private func clearDataAfterPendingRecords(_ clearScope: DataClearScope) async throws -> AppSnapshot {
         let statsScope = currentStatisticsScope
+        let filter = currentStatisticsFilter
         return try await withCheckedThrowingContinuation { continuation in
             // 清空动作也进入记录队列，保证用户点击前已经排队的按键先写入，再被本次清空处理掉。
-            recordQueue.async { [store, clearScope, statsScope] in
+            recordQueue.async { [store, clearScope, statsScope, filter] in
                 do {
                     try store.clearData(clearScope)
-                    continuation.resume(returning: try store.snapshot(scope: statsScope))
+                    continuation.resume(returning: try store.snapshot(scope: statsScope, filter: filter))
                 } catch {
                     continuation.resume(throwing: error)
                 }

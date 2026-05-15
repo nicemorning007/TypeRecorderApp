@@ -125,7 +125,7 @@ final class DatabaseStore: @unchecked Sendable {
         try upsertCurrentSessionIfNeeded(force: false)
     }
 
-    func snapshot(scope: StatisticsScope = .today) throws -> AppSnapshot {
+    func snapshot(scope: StatisticsScope = .today, filter: StatisticsFilter = .none) throws -> AppSnapshot {
         lock.lock()
         defer { lock.unlock() }
         try flushPendingEventData(force: true)
@@ -154,10 +154,14 @@ final class DatabaseStore: @unchecked Sendable {
             statsDateLabel = "累计"
         }
 
+        // 过滤只服务统计展示。scopedEvents 仍然保留完整原始记录，用于“最近输入”和“事件明细”，
+        // 避免设置开关反过来影响真实数据留存或用户回看明细。
+        let statisticalEvents = eventsForStatistics(scopedEvents, filter: filter)
+
         return AppSnapshot(
-            realtime: realtimeStats(for: statsDateLabel, events: scopedEvents),
-            daily: dailyStats(for: statsDateLabel, events: scopedEvents, sessions: scopedSessions),
-            frequencies: wordFrequency(limit: 300, events: scopedEvents),
+            realtime: realtimeStats(for: statsDateLabel, events: statisticalEvents),
+            daily: dailyStats(for: statsDateLabel, events: statisticalEvents, sessions: scopedSessions),
+            frequencies: wordFrequency(limit: 300, events: statisticalEvents),
             applications: [],
             events: recentEvents(limit: 250, events: scopedEvents)
         )
@@ -269,6 +273,24 @@ final class DatabaseStore: @unchecked Sendable {
             DateFormatter.typeRecorderDay.string(from: $0.startTime) == date
         }
         return dailyStats(for: date, events: events, sessions: sessions)
+    }
+
+    private func eventsForStatistics(
+        _ events: [StoredKeystrokeEvent],
+        filter: StatisticsFilter
+    ) -> [StoredKeystrokeEvent] {
+        guard filter.excludesFunctionalKeys else {
+            return events
+        }
+
+        return events.filter { event in
+            // 这个附加开关只在“排除功能键”开启时生效：
+            // 用户可以排除空格和修饰键，同时仍把 Esc / Return / Delete 算进统计。
+            if filter.includesEscapeReturnDelete, event.isEscapeReturnOrDeleteStatisticsKey {
+                return true
+            }
+            return !event.isExcludedFunctionalStatisticsKey
+        }
     }
 
     private func wordFrequency(limit: Int, events: [StoredKeystrokeEvent]) -> [WordFrequencyItem] {
@@ -711,6 +733,47 @@ private struct StoredKeystrokeEvent: Codable {
             characterKind: characterKind
         )
     }
+
+    var isEscapeReturnOrDeleteStatisticsKey: Bool {
+        Self.escapeReturnDeleteStatisticKeyNames.contains(keyName)
+    }
+
+    var isExcludedFunctionalStatisticsKey: Bool {
+        if keyCharacter == " " {
+            return true
+        }
+        return Self.excludedFunctionalStatisticKeyNames.contains(keyName)
+    }
+
+    // 这里的名单只对应设置文案中列出的键。其他按键仍按原统计口径计算，
+    // 避免“排除功能键”误伤未被用户点名的 Tab、方向键或 F1-F12。
+    private static let excludedFunctionalStatisticKeyNames: Set<String> = [
+        "Key.space",
+        "Key.cmd",
+        "Key.cmd_r",
+        "Key.alt",
+        "Key.alt_r",
+        "Key.ctrl",
+        "Key.ctrl_r",
+        "Key.backspace",
+        "Key.delete",
+        "Key.caps_lock",
+        "Key.shift",
+        "Key.shift_r",
+        "Key.enter",
+        "Key.return",
+        "Key.esc",
+        "Key.escape"
+    ]
+
+    private static let escapeReturnDeleteStatisticKeyNames: Set<String> = [
+        "Key.backspace",
+        "Key.delete",
+        "Key.enter",
+        "Key.return",
+        "Key.esc",
+        "Key.escape"
+    ]
 }
 
 private struct StoredTypingSession: Codable {

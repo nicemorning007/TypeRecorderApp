@@ -155,6 +155,16 @@ enum StatisticsScope: Sendable {
     case allDates
 }
 
+struct StatisticsFilter: Equatable, Sendable {
+    var excludesFunctionalKeys: Bool
+    var includesEscapeReturnDelete: Bool
+
+    static let none = StatisticsFilter(
+        excludesFunctionalKeys: false,
+        includesEscapeReturnDelete: false
+    )
+}
+
 enum DataClearScope: Sendable {
     case today
     case all

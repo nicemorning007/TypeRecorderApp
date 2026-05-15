@@ -109,8 +109,6 @@ struct DashboardView: View {
 }
 
 struct HeaderStrip: View {
-    @EnvironmentObject private var model: AppModel
-
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "keyboard")
@@ -123,12 +121,6 @@ struct HeaderStrip: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("键盘输入记录")
                     .font(.title2.weight(.semibold))
-                Text("会话 \(model.sessionID)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
             }
             .layoutPriority(1)
 
@@ -238,7 +230,7 @@ struct RecentEventsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "最近输入", symbol: "list.bullet.rectangle")
-            ForEach(model.snapshot.events.prefix(8)) { event in
+            ForEach(model.snapshot.events.prefix(5)) { event in
                 HStack(spacing: 10) {
                     Text(event.displayKey)
                         .font(.system(.body, design: .rounded, weight: .semibold))
@@ -856,6 +848,25 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
+            }
+
+            Section("统计") {
+                Toggle("排除功能键", isOn: Binding(
+                    get: { model.excludesFunctionalKeysFromStatistics },
+                    set: { model.setExcludesFunctionalKeysFromStatistics($0) }
+                ))
+                Text("开启后，空格、Command、Option、Control、Delete、Caps Lock、Shift、Return、Esc 不纳入统计。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("统计中保留 Esc / Return / Delete", isOn: Binding(
+                    get: { model.includesEscapeReturnDeleteInStatistics },
+                    set: { model.setIncludesEscapeReturnDeleteInStatistics($0) }
+                ))
+                .disabled(!model.excludesFunctionalKeysFromStatistics)
+                Text("只在排除功能键开启时生效；原始按键记录始终完整保存。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("关于") {
