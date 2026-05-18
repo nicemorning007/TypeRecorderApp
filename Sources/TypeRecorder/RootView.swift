@@ -1091,7 +1091,7 @@ struct SettingsView: View {
                 HStack {
                     Text("版本号")
                     Spacer()
-                    Text("1.0.0")
+                    Text("v1.0.1")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
