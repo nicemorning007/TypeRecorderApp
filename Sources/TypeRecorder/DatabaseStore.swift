@@ -157,10 +157,14 @@ final class DatabaseStore: @unchecked Sendable {
         // 过滤只服务统计展示。scopedEvents 仍然保留完整原始记录，用于“最近输入”和“事件明细”，
         // 避免设置开关反过来影响真实数据留存或用户回看明细。
         let statisticalEvents = eventsForStatistics(scopedEvents, filter: filter)
+        // 今日称号只看自然日当天的数据。即使用户关闭“每日 0 时自动重置统计”，
+        // 这里也不能使用 scopedEvents，否则称号会被累计历史按键量直接顶到最高等级。
+        let todayStatisticalEvents = eventsForStatistics(eventsByDate[today, default: []], filter: filter)
 
         return AppSnapshot(
             realtime: realtimeStats(for: statsDateLabel, events: statisticalEvents),
             daily: dailyStats(for: statsDateLabel, events: statisticalEvents, sessions: scopedSessions),
+            todayKeystrokesCount: todayStatisticalEvents.count,
             frequencies: wordFrequency(limit: 300, events: statisticalEvents),
             applications: [],
             events: recentEvents(limit: 250, events: scopedEvents)

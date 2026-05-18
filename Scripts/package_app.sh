@@ -17,6 +17,8 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$ROOT_DIR/.build/release/TypeRecorder" "$MACOS_DIR/TypeRecorder"
 cp "$ROOT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/Resources/TypeRecorderIcon.icns" "$RESOURCES_DIR/TypeRecorderIcon.icns"
+cp -R "$ROOT_DIR/Resources/AchievementBadges" "$RESOURCES_DIR/AchievementBadges"
+cp "$ROOT_DIR/Resources/mm_reward_qrcode.png" "$RESOURCES_DIR/mm_reward_qrcode.png"
 chmod +x "$MACOS_DIR/TypeRecorder"
 
 "$ROOT_DIR/Scripts/sign_app.sh" "$APP_DIR"

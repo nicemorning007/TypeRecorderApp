@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published var isDailyResetEnabled: Bool
     @Published var excludesFunctionalKeysFromStatistics: Bool
     @Published var includesEscapeReturnDeleteInStatistics: Bool
+    @Published var hidesDockIcon: Bool
     @Published private(set) var isMonitoringRunning = false
     @Published private(set) var isMonitoringStarting = false
     @Published private(set) var isKeyboardPermissionGranted = false
@@ -24,20 +25,17 @@ final class AppModel: ObservableObject {
     private var dailyBoundaryTimer: Timer?
     private var monitorStateSubscription: AnyCancellable?
 
-    private static let dailyResetDefaultsKey = "TypeRecorder.Settings.isDailyResetEnabled"
-    private static let excludesFunctionalKeysDefaultsKey = "TypeRecorder.Settings.excludesFunctionalKeysFromStatistics"
-    private static let includesEscapeReturnDeleteDefaultsKey = "TypeRecorder.Settings.includesEscapeReturnDeleteInStatistics"
-
     init() {
         let defaults = UserDefaults.standard
-        if defaults.object(forKey: Self.dailyResetDefaultsKey) == nil {
+        if defaults.object(forKey: AppSettingsKeys.dailyResetEnabled) == nil {
             isDailyResetEnabled = true
-            defaults.set(true, forKey: Self.dailyResetDefaultsKey)
+            defaults.set(true, forKey: AppSettingsKeys.dailyResetEnabled)
         } else {
-            isDailyResetEnabled = defaults.bool(forKey: Self.dailyResetDefaultsKey)
+            isDailyResetEnabled = defaults.bool(forKey: AppSettingsKeys.dailyResetEnabled)
         }
-        excludesFunctionalKeysFromStatistics = defaults.bool(forKey: Self.excludesFunctionalKeysDefaultsKey)
-        includesEscapeReturnDeleteInStatistics = defaults.bool(forKey: Self.includesEscapeReturnDeleteDefaultsKey)
+        excludesFunctionalKeysFromStatistics = defaults.bool(forKey: AppSettingsKeys.excludesFunctionalKeysFromStatistics)
+        includesEscapeReturnDeleteInStatistics = defaults.bool(forKey: AppSettingsKeys.includesEscapeReturnDeleteInStatistics)
+        hidesDockIcon = defaults.bool(forKey: AppSettingsKeys.hidesDockIcon)
 
         let createdStore: DatabaseStore
         do {
@@ -129,7 +127,7 @@ final class AppModel: ObservableObject {
     }
 
     func setDailyResetEnabled(_ isEnabled: Bool) {
-        UserDefaults.standard.set(isEnabled, forKey: Self.dailyResetDefaultsKey)
+        UserDefaults.standard.set(isEnabled, forKey: AppSettingsKeys.dailyResetEnabled)
         publish {
             self.isDailyResetEnabled = isEnabled
         }
@@ -139,7 +137,7 @@ final class AppModel: ObservableObject {
     }
 
     func setExcludesFunctionalKeysFromStatistics(_ isEnabled: Bool) {
-        UserDefaults.standard.set(isEnabled, forKey: Self.excludesFunctionalKeysDefaultsKey)
+        UserDefaults.standard.set(isEnabled, forKey: AppSettingsKeys.excludesFunctionalKeysFromStatistics)
         publish {
             self.excludesFunctionalKeysFromStatistics = isEnabled
         }
@@ -149,12 +147,24 @@ final class AppModel: ObservableObject {
     }
 
     func setIncludesEscapeReturnDeleteInStatistics(_ isEnabled: Bool) {
-        UserDefaults.standard.set(isEnabled, forKey: Self.includesEscapeReturnDeleteDefaultsKey)
+        UserDefaults.standard.set(isEnabled, forKey: AppSettingsKeys.includesEscapeReturnDeleteInStatistics)
         publish {
             self.includesEscapeReturnDeleteInStatistics = isEnabled
         }
         Task {
             await refresh()
+        }
+    }
+
+    func setHidesDockIcon(_ isEnabled: Bool) {
+        UserDefaults.standard.set(isEnabled, forKey: AppSettingsKeys.hidesDockIcon)
+        NotificationCenter.default.post(
+            name: .typeRecorderHideDockIconPreferenceDidChange,
+            object: nil,
+            userInfo: ["isEnabled": isEnabled]
+        )
+        publish {
+            self.hidesDockIcon = isEnabled
         }
     }
 

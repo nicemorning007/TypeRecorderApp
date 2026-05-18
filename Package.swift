@@ -13,6 +13,9 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "TypeRecorder",
+            resources: [
+                .copy("Resources/mm_reward_qrcode.png")
+            ],
             linkerSettings: [
                 // Xcode 直接运行 SwiftPM executable 时不会自动生成 .app 主 bundle。
                 // 把 Info.plist 嵌进 Mach-O 后，Bundle.main 可以读到 CFBundleIdentifier，

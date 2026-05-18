@@ -145,6 +145,8 @@ struct AppSnapshot: Equatable, Sendable {
         totalDeletes: 0,
         totalSessions: 0
     )
+    // 首页成就称号永远按“今天”的按键量计算，不能跟随“累计数据”统计口径一起变成历史总量。
+    var todayKeystrokesCount: Int = 0
     var frequencies: [WordFrequencyItem] = []
     var applications: [ApplicationUsageItem] = []
     var events: [KeystrokeEventItem] = []

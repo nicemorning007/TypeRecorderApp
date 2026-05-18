@@ -83,7 +83,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HeaderStrip()
-                StatGrid()
+                DashboardSummaryPanel()
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 18) {
                         CompactHeatmap()
@@ -173,16 +173,195 @@ struct StatusPill: View {
     }
 }
 
+struct DashboardSummaryPanel: View {
+    @State private var achievementCardHeight: CGFloat = 0
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 18) {
+                AchievementCard()
+                    .frame(width: 320)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: SummaryCardHeightKey.self, value: proxy.size.height)
+                        }
+                    )
+                StatGrid()
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .frame(height: achievementCardHeight > 0 ? achievementCardHeight : nil)
+            }
+            .onPreferenceChange(SummaryCardHeightKey.self) { newHeight in
+                if abs(achievementCardHeight - newHeight) > 0.5 {
+                    achievementCardHeight = newHeight
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                AchievementCard()
+                StatGrid()
+            }
+        }
+    }
+}
+
+private struct SummaryCardHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+struct DailyAchievementTitle {
+    let level: Int
+    let title: String
+    let message: String
+    let symbol: String
+    let tint: Color
+
+    var badgeImageName: String {
+        "achievement_\(String(format: "%02d", level))"
+    }
+
+    static let all: [DailyAchievementTitle] = [
+        DailyAchievementTitle(level: 1, title: "今日挂机中", message: "键盘：我今天放假？", symbol: "moon.zzz.fill", tint: .gray),
+        DailyAchievementTitle(level: 2, title: "轻点两下", message: "手指已上线，状态待热身", symbol: "hand.tap.fill", tint: .green),
+        DailyAchievementTitle(level: 3, title: "摸鱼打字员", message: "看起来在忙，其实刚开始", symbol: "cursorarrow.click.2", tint: .teal),
+        DailyAchievementTitle(level: 4, title: "办公室敲击者", message: "今天已经有点声音了", symbol: "briefcase.fill", tint: .blue),
+        DailyAchievementTitle(level: 5, title: "文档搬砖人", message: "字不是自己出来的", symbol: "doc.text.fill", tint: .brown),
+        DailyAchievementTitle(level: 6, title: "键盘冒烟选手", message: "今日输出量有点东西", symbol: "flame.fill", tint: .orange),
+        DailyAchievementTitle(level: 7, title: "指尖永动机", message: "停不下来，根本停不下来", symbol: "infinity", tint: .mint),
+        DailyAchievementTitle(level: 8, title: "人形输入法", message: "想法刚出现，字已经到了", symbol: "sparkles", tint: .indigo),
+        DailyAchievementTitle(level: 9, title: "键盘破坏者", message: "今天的键盘承受了太多", symbol: "bolt.fill", tint: .red)
+    ]
+
+    static func resolve(for keystrokes: Int) -> DailyAchievementTitle {
+        // 称号只按“今日按键次数”命中区间，不暴露下一等级门槛，给用户保留探索空间。
+        switch keystrokes {
+        case 70_000...:
+            all[8]
+        case 40_000...:
+            all[7]
+        case 10_000...:
+            all[6]
+        case 6_000...:
+            all[5]
+        case 3_000...:
+            all[4]
+        case 1_000...:
+            all[3]
+        case 500...:
+            all[2]
+        case 1...:
+            all[1]
+        default:
+            all[0]
+        }
+    }
+}
+
+struct AchievementCard: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var achievement: DailyAchievementTitle {
+        DailyAchievementTitle.resolve(for: model.snapshot.todayKeystrokesCount)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                Spacer()
+                AchievementBadge(achievement: achievement)
+                Spacer()
+            }
+
+            Spacer(minLength: 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(achievement.title)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(achievement.tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.64)
+                Text(achievement.message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .glassPanel(tint: achievement.tint.opacity(0.08))
+    }
+}
+
+struct AchievementBadge: View {
+    let achievement: DailyAchievementTitle
+
+    var body: some View {
+        ZStack {
+            if let image = AchievementBadgeImageLoader.image(named: achievement.badgeImageName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Circle()
+                    .fill(achievement.tint.opacity(0.14))
+                    .overlay(Circle().stroke(achievement.tint.opacity(0.28), lineWidth: 1))
+                Image(systemName: achievement.symbol)
+                    .font(.system(size: 34, weight: .bold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(achievement.tint)
+            }
+        }
+        .frame(width: 160, height: 160)
+    }
+}
+
+enum AchievementBadgeImageLoader {
+    static func image(named name: String) -> NSImage? {
+        if let bundleURL = Bundle.main.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "AchievementBadges"
+        ) {
+            return NSImage(contentsOf: bundleURL)
+        }
+
+        // swift run / swift build 调试时没有完整 .app bundle，这里回退到源码目录下的资源。
+        // 打包后的正式应用仍优先走 Bundle.main，不依赖当前工作目录。
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot = sourceFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = projectRoot
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("AchievementBadges")
+            .appendingPathComponent("\(name).png")
+        return NSImage(contentsOf: sourceURL)
+    }
+}
+
 struct StatGrid: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 14)], spacing: 14) {
-            StatCard(title: "按键次数", value: model.snapshot.realtime.keystrokesCount.formatted(), symbol: "keyboard", tint: .blue)
-            StatCard(title: "有效输入", value: model.snapshot.realtime.validInputCount.formatted(), symbol: "text.cursor", tint: .green)
-            StatCard(title: "总字符", value: model.snapshot.realtime.charactersCount.formatted(), symbol: "character.cursor.ibeam", tint: .purple)
-            StatCard(title: "删除次数", value: model.snapshot.realtime.deletedCount.formatted(), symbol: "delete.left", tint: .red)
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                StatCard(title: "按键次数", value: model.snapshot.realtime.keystrokesCount.formatted(), symbol: "keyboard", tint: .blue)
+                StatCard(title: "有效输入", value: model.snapshot.realtime.validInputCount.formatted(), symbol: "text.cursor", tint: .green)
+            }
+            .frame(maxHeight: .infinity)
+
+            HStack(spacing: 14) {
+                StatCard(title: "总字符", value: model.snapshot.realtime.charactersCount.formatted(), symbol: "character.cursor.ibeam", tint: .purple)
+                StatCard(title: "删除次数", value: model.snapshot.realtime.deletedCount.formatted(), symbol: "delete.left", tint: .red)
+            }
+            .frame(maxHeight: .infinity)
         }
+        .frame(maxHeight: .infinity)
     }
 }
 
@@ -205,7 +384,7 @@ struct StatCard: View {
                 .monospacedDigit()
                 .foregroundStyle(tint)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(18)
         .glassPanel(tint: tint.opacity(0.08))
     }
@@ -775,6 +954,7 @@ struct EventsView: View {
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var isClearDataDialogPresented = false
+    @State private var isSponsorSheetPresented = false
     private let authorURL = URL(string: "https://nicemorning.cn")!
     private let githubURL = URL(string: "https://github.com/nicemorning007/TypeRecorderApp")!
 
@@ -869,12 +1049,34 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("应用") {
+                Toggle("隐藏 Dock 栏图标", isOn: Binding(
+                    get: { model.hidesDockIcon },
+                    set: { model.setHidesDockIcon($0) }
+                ))
+                Text("开启后，关闭窗口会让 TypeRecorder 留在后台运行，Dock 栏不再显示图标；可通过菜单栏或重新打开 App 显示窗口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("关于") {
                 HStack {
                     Text("作者")
                     Spacer()
                     Link("Nicemorning", destination: authorURL)
                 }
+                Button {
+                    isSponsorSheetPresented = true
+                } label: {
+                    HStack {
+                        Text("赞助")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Label("请我喝瑞子", systemImage: "heart.fill")
+                            .foregroundStyle(.pink)
+                    }
+                }
+                .buttonStyle(.plain)
                 HStack {
                     Text("GitHub")
                     Spacer()
@@ -917,6 +1119,129 @@ struct SettingsView: View {
         } message: {
             Text("请选择要清空的数据范围。该操作会删除本机已保存的对应统计数据。")
         }
+        .sheet(isPresented: $isSponsorSheetPresented) {
+            SponsorSheet(githubURL: githubURL)
+        }
+    }
+}
+
+private struct SponsorSheet: View {
+    let githubURL: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [.pink.opacity(0.18), .orange.opacity(0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 72, height: 72)
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.pink)
+            }
+
+            VStack(spacing: 10) {
+                Text("喜欢 TypeRecorder 吗？")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.pink, .orange],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+
+                Text("如果你喜欢这个小工具的话，可以请我喝一杯瑞子吗？")
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+
+                Text("如果你有更多的想法或者希望基于项目进行二开，欢迎访问 GitHub 仓库获取源码。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+            }
+
+            if let image = SponsorQRCodeImageLoader.image() {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 320, height: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(.white.opacity(0.72), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 22, y: 10)
+            } else {
+                ContentUnavailableView("收款码未找到", systemImage: "qrcode", description: Text("请检查 mm_reward_qrcode.png 是否存在。"))
+                    .frame(width: 320, height: 220)
+            }
+
+            Button("关闭") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(34)
+        .frame(width: 460)
+        .background(
+            LinearGradient(
+                colors: [Color(nsColor: .windowBackgroundColor), .pink.opacity(0.08)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+}
+
+private enum SponsorQRCodeImageLoader {
+    static func image() -> NSImage? {
+        if let bundleURL = Bundle.main.url(forResource: "mm_reward_qrcode", withExtension: "png") {
+            return NSImage(contentsOf: bundleURL)
+        }
+
+#if SWIFT_PACKAGE
+        if let packageURL = Bundle.module.url(forResource: "mm_reward_qrcode", withExtension: "png") {
+            return NSImage(contentsOf: packageURL)
+        }
+#endif
+
+        let resourceURL = Bundle.main.resourceURL
+        let executableDirectoryURL = Bundle.main.executableURL?.deletingLastPathComponent()
+        let candidateURLs = [
+            resourceURL?.appendingPathComponent("mm_reward_qrcode.png"),
+            resourceURL?
+                .appendingPathComponent("TypeRecorder_TypeRecorder.bundle")
+                .appendingPathComponent("mm_reward_qrcode.png"),
+            resourceURL?
+                .appendingPathComponent("TypeRecorder_TypeRecorder.bundle")
+                .appendingPathComponent("Contents")
+                .appendingPathComponent("Resources")
+                .appendingPathComponent("mm_reward_qrcode.png"),
+            executableDirectoryURL?
+                .appendingPathComponent("TypeRecorder_TypeRecorder.bundle")
+                .appendingPathComponent("mm_reward_qrcode.png"),
+            executableDirectoryURL?
+                .appendingPathComponent("TypeRecorder_TypeRecorder.bundle")
+                .appendingPathComponent("Contents")
+                .appendingPathComponent("Resources")
+                .appendingPathComponent("mm_reward_qrcode.png")
+        ]
+
+        for url in candidateURLs.compactMap({ $0 }) {
+            if FileManager.default.fileExists(atPath: url.path), let image = NSImage(contentsOf: url) {
+                return image
+            }
+        }
+
+        return nil
     }
 }
 

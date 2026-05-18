@@ -6,7 +6,7 @@ struct TypeRecorderApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("TypeRecorder", id: AppWindowID.main) {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 1120, minHeight: 720)
@@ -27,21 +27,27 @@ struct TypeRecorderApp: App {
 
 struct MenuBarContent: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(statusText)
             Text("\(model.statisticsScopeTitle)按键：\(model.snapshot.realtime.keystrokesCount.formatted())")
             Divider()
+            Button("显示窗口") {
+                showMainWindow()
+            }
             Button(actionTitle) {
                 model.isMonitoringRunning ? model.stopMonitoring() : model.startMonitoring()
             }
             .disabled(model.isMonitoringStarting)
-            Button("刷新统计") {
-                Task { await model.refresh() }
-            }
         }
         .padding(8)
+        .onAppear {
+            // MenuBarExtra 使用 .menu 样式时，菜单内容会在用户点开菜单时进入显示流程。
+            // 这里复用 AppModel 的排队刷新逻辑，保证菜单里看到的是已写入按键之后的最新统计。
+            model.refreshWhenShown()
+        }
     }
 
     private var statusText: String {
@@ -56,5 +62,12 @@ struct MenuBarContent: View {
             return "启动中..."
         }
         return model.isMonitoringRunning ? "停止记录" : "开始记录"
+    }
+
+    private func showMainWindow() {
+        if !AppActivationDelegate.showMainWindow() {
+            openWindow(id: AppWindowID.main)
+            AppActivationDelegate.showMainWindowAfterWindowCreation()
+        }
     }
 }
