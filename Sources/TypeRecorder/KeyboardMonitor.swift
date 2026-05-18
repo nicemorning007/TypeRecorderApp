@@ -267,6 +267,8 @@ private final class KeyboardEventProcessor: @unchecked Sendable {
     private var lastEventTime: Date?
     private var nextSequence: Int64 = 1
     private var pressedModifierKeyCodes = Set<UInt16>()
+    private var lastCapsLockIsActive: Bool?
+    private var isWaitingForCapsLockRelease = false
 
     init(onCapture: @escaping @Sendable (KeystrokeCapture) -> Void) {
         self.onCapture = onCapture
@@ -280,7 +282,11 @@ private final class KeyboardEventProcessor: @unchecked Sendable {
 
     func resetModifierState() {
         queue.async { [weak self] in
+            // 停止后重新开始记录时，不能继承上一轮修饰键状态。
+            // Caps Lock 有单独的按压配对状态，也需要一起清空，否则新一轮第一次按键可能被误判为重复事件。
             self?.pressedModifierKeyCodes.removeAll()
+            self?.lastCapsLockIsActive = nil
+            self?.isWaitingForCapsLockRelease = false
         }
     }
 
@@ -320,9 +326,12 @@ private final class KeyboardEventProcessor: @unchecked Sendable {
             }
 
             // Caps Lock 的 flagsChanged 表示锁定状态切换，不像 Shift/Command 那样有稳定的“按下/松开”配对。
-            // 用户每次按 Caps Lock 都会改变状态，所以这里直接把每次切换都记为一次按键。
+            // 一些键盘/系统版本会在一次物理按压里发出多条 flagsChanged。这里走 Caps Lock 专用去重：
+            // - Caps Lock 作为大写锁定使用时，锁定状态变化代表一次真实按压；
+            // - Caps Lock 作为输入法切换键使用时，锁定状态可能完全不变，所以不能只看 .capsLock；
+            // - 遇到同状态的下一条 Caps Lock 事件时，把它当作同一次物理按压的释放/重复事件吞掉。
             if payload.keyName == "Key.caps_lock" {
-                return true
+                return shouldRecordCapsLock(payload)
             }
 
             // 其他修饰键在按下和松开时都会发 flagsChanged。这里只记录按下阶段：
@@ -336,6 +345,29 @@ private final class KeyboardEventProcessor: @unchecked Sendable {
             pressedModifierKeyCodes.remove(payload.keyCode)
             return false
         }
+    }
+
+    private func shouldRecordCapsLock(_ payload: KeyboardEventPayload) -> Bool {
+        defer {
+            lastCapsLockIsActive = payload.isModifierActive
+        }
+
+        if let lastCapsLockIsActive, lastCapsLockIsActive != payload.isModifierActive {
+            // 大写锁定状态发生变化时，说明这是一次新的 Caps Lock 物理按压。
+            // 先标记等待释放，下一条同状态事件如果只是释放阶段，就不会被重复记录。
+            isWaitingForCapsLockRelease = true
+            return true
+        }
+
+        if isWaitingForCapsLockRelease {
+            isWaitingForCapsLockRelease = false
+            return false
+        }
+
+        // 输入法切换场景下，Caps Lock 事件可能不会改变 .capsLock 状态。
+        // 此时按“记录一条、吞掉下一条同状态事件”的方式，把按下/释放配对成一次按键。
+        isWaitingForCapsLockRelease = true
+        return true
     }
 }
 
