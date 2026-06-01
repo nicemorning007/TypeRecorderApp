@@ -1050,6 +1050,26 @@ struct SettingsView: View {
             }
 
             Section("应用") {
+                Toggle("开机自启动", isOn: Binding(
+                    get: { model.launchesAtLogin },
+                    set: { model.setLaunchesAtLogin($0) }
+                ))
+                Text("开启后，macOS 登录当前用户时会自动打开 TypeRecorder；如果系统要求确认，请在系统设置的登录项中允许。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let message = model.launchAtLoginStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let error = model.launchAtLoginLastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+
                 Toggle("隐藏 Dock 栏图标", isOn: Binding(
                     get: { model.hidesDockIcon },
                     set: { model.setHidesDockIcon($0) }
@@ -1100,6 +1120,9 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(24)
         .navigationTitle("设置")
+        .onAppear {
+            model.refreshLaunchAtLoginStatus()
+        }
         .confirmationDialog(
             "清空数据",
             isPresented: $isClearDataDialogPresented,

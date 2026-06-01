@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -12,6 +13,9 @@ final class AppModel: ObservableObject {
     @Published var excludesFunctionalKeysFromStatistics: Bool
     @Published var includesEscapeReturnDeleteInStatistics: Bool
     @Published var hidesDockIcon: Bool
+    @Published private(set) var launchesAtLogin: Bool
+    @Published private(set) var launchAtLoginStatusMessage: String?
+    @Published private(set) var launchAtLoginLastError: String?
     @Published private(set) var isMonitoringRunning = false
     @Published private(set) var isMonitoringStarting = false
     @Published private(set) var isKeyboardPermissionGranted = false
@@ -36,6 +40,7 @@ final class AppModel: ObservableObject {
         excludesFunctionalKeysFromStatistics = defaults.bool(forKey: AppSettingsKeys.excludesFunctionalKeysFromStatistics)
         includesEscapeReturnDeleteInStatistics = defaults.bool(forKey: AppSettingsKeys.includesEscapeReturnDeleteInStatistics)
         hidesDockIcon = defaults.bool(forKey: AppSettingsKeys.hidesDockIcon)
+        launchesAtLogin = Self.isLaunchAtLoginEnabled()
 
         let createdStore: DatabaseStore
         do {
@@ -168,6 +173,39 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func refreshLaunchAtLoginStatus() {
+        // 系统设置里的“登录时打开”状态可能被用户在 App 外部修改。
+        // 每次设置页显示时重新读取系统状态，避免 Toggle 显示旧值。
+        publish {
+            self.launchesAtLogin = Self.isLaunchAtLoginEnabled()
+            self.launchAtLoginStatusMessage = Self.launchAtLoginStatusDescription()
+        }
+    }
+
+    func setLaunchesAtLogin(_ isEnabled: Bool) {
+        do {
+            if isEnabled {
+                // SMAppService.mainApp 会把当前 App 注册到 macOS 登录项。
+                // 这是 macOS 13 之后推荐的主 App 自启动方式，不需要额外的 Helper App。
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+
+            publish {
+                self.launchesAtLogin = Self.isLaunchAtLoginEnabled()
+                self.launchAtLoginStatusMessage = Self.launchAtLoginStatusDescription()
+                self.launchAtLoginLastError = nil
+            }
+        } catch {
+            publish {
+                self.launchesAtLogin = Self.isLaunchAtLoginEnabled()
+                self.launchAtLoginStatusMessage = Self.launchAtLoginStatusDescription()
+                self.launchAtLoginLastError = "开机自启动设置失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
     func clearData(_ scope: DataClearScope) async {
         do {
             let latestSnapshot = try await clearDataAfterPendingRecords(scope)
@@ -244,6 +282,25 @@ final class AppModel: ObservableObject {
             Task {
                 await refresh()
             }
+        }
+    }
+
+    private static func isLaunchAtLoginEnabled() -> Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    private static func launchAtLoginStatusDescription() -> String? {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            return "已加入 macOS 登录项。"
+        case .notRegistered:
+            return "未加入 macOS 登录项。"
+        case .requiresApproval:
+            return "需要在系统设置的“登录项”中允许 TypeRecorder。"
+        case .notFound:
+            return "当前运行方式暂时无法注册登录项，请使用打包后的 App 再开启。"
+        @unknown default:
+            return "无法识别当前登录项状态，请稍后重试。"
         }
     }
 
