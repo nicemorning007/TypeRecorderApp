@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SceneKit
 import SwiftUI
 
@@ -17,6 +18,8 @@ struct RootView: View {
             switch model.selectedRoute ?? .dashboard {
             case .dashboard:
                 DashboardView()
+            case .hourly:
+                HourlyStatsView()
             case .keyboard:
                 KeyboardHeatmapView()
             case .keyboard3D:
@@ -84,6 +87,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HeaderStrip()
                 DashboardSummaryPanel()
+                HourlyKeystrokePanel(compact: true)
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 18) {
                         CompactHeatmap()
@@ -388,6 +392,535 @@ struct StatCard: View {
         .padding(18)
         .glassPanel(tint: tint.opacity(0.08))
     }
+}
+
+struct HourlyStatsView: View {
+    @EnvironmentObject private var model: AppModel
+    private let mainPanelHeight: CGFloat = 520
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 18) {
+                        TimePersonaCard()
+                            .frame(width: 320)
+                            .frame(height: mainPanelHeight)
+                        HourlyKeystrokePanel(compact: false)
+                            .frame(minWidth: 0, maxWidth: .infinity)
+                            .frame(height: mainPanelHeight)
+                    }
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        TimePersonaCard()
+                        HourlyKeystrokePanel(compact: false)
+                    }
+                }
+                HourlyInsightStrip()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("分时统计")
+    }
+}
+
+struct TimePersonaCard: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var persona: TypingTimePersona {
+        TypingTimePersona.resolve(from: model.snapshot.hourlyKeystrokes)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Spacer()
+
+                Text("今日")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color(nsColor: .windowBackgroundColor)))
+            }
+
+            TimePersonaArtwork(persona: persona)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(persona.title)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(persona.tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.64)
+                Text(persona.message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(18)
+        .glassPanel(tint: persona.tint.opacity(0.08))
+    }
+}
+
+struct TimePersonaArtwork: View {
+    let persona: TypingTimePersona
+
+    var body: some View {
+        ZStack {
+            if let image = TimePersonaBadgeImageLoader.image(named: persona.imageName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 236, height: 236)
+                    .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 34, style: .continuous)
+                            .stroke(.white.opacity(0.65), lineWidth: 1)
+                    )
+            } else {
+                TimePersonaIcon(design: persona.icon, tint: persona.tint)
+                    .frame(width: 236, height: 236)
+            }
+        }
+        .frame(width: 236, height: 236)
+        .shadow(color: persona.tint.opacity(0.20), radius: 20, y: 10)
+    }
+}
+
+enum TimePersonaBadgeImageLoader {
+    static func image(named name: String) -> NSImage? {
+        if let bundleURL = Bundle.main.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "TimePersonaBadges"
+        ) {
+            return NSImage(contentsOf: bundleURL)
+        }
+
+#if SWIFT_PACKAGE
+        if let packageURL = Bundle.module.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "TimePersonaBadges"
+        ) {
+            return NSImage(contentsOf: packageURL)
+        }
+#endif
+
+        // swift run / swift build 调试时可能没有完整 .app 资源目录，
+        // 因此回退到 SwiftPM target 资源目录下的 TimePersonaBadges。
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot = sourceFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = projectRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("TypeRecorder")
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("TimePersonaBadges")
+            .appendingPathComponent("\(name).png")
+        return NSImage(contentsOf: sourceURL)
+    }
+}
+
+struct TimePersonaIcon: View {
+    let design: TimePersonaIconDesign
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            tint.opacity(0.20),
+                            tint.opacity(0.08)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(Circle().stroke(tint.opacity(0.30), lineWidth: 1.4))
+
+            // 背景纹理符号只作为很淡的氛围层，让不同头衔有自己的轮廓，
+            // 但不能抢主图标的视觉焦点。
+            Image(systemName: design.textureSymbol)
+                .font(.system(size: 34, weight: .bold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(tint.opacity(0.14))
+                .offset(x: -10, y: 10)
+
+            Image(systemName: design.primarySymbol)
+                .font(.system(size: 29, weight: .bold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(tint)
+
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Image(systemName: design.badgeSymbol)
+                        .font(.system(size: 12, weight: .bold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(tint)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Color(nsColor: .controlBackgroundColor)))
+                        .overlay(Circle().stroke(tint.opacity(0.28), lineWidth: 1))
+                }
+            }
+        }
+        .frame(width: 58, height: 58)
+        .accessibilityLabel(design.accessibilityLabel)
+    }
+}
+
+struct TimePersonaIconDesign {
+    let primarySymbol: String
+    let badgeSymbol: String
+    let textureSymbol: String
+    let accessibilityLabel: String
+}
+
+struct HourlyKeystrokePanel: View {
+    @EnvironmentObject private var model: AppModel
+    let compact: Bool
+
+    private var todayItems: [HourlyKeystrokeItem] {
+        model.snapshot.hourlyKeystrokes
+    }
+
+    private var yesterdayItems: [HourlyKeystrokeItem] {
+        model.snapshot.yesterdayHourlyKeystrokes
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 10 : 14) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionHeader(title: "今日按键与昨日趋势", symbol: "chart.xyaxis.line")
+                Spacer()
+                Text("不受每日重置影响")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HourlyKeystrokeChart(todayItems: todayItems, yesterdayItems: yesterdayItems)
+                .frame(height: compact ? 220 : 360)
+
+            if !compact {
+                HourlyChartLegend()
+            }
+        }
+        .padding(18)
+        .glassPanel()
+    }
+}
+
+struct HourlyKeystrokeChart: View {
+    let todayItems: [HourlyKeystrokeItem]
+    let yesterdayItems: [HourlyKeystrokeItem]
+
+    private var maxCount: Int {
+        max(
+            todayItems.map(\.count).max() ?? 0,
+            yesterdayItems.map(\.count).max() ?? 0,
+            1
+        )
+    }
+
+    var body: some View {
+        Chart {
+            ForEach(todayItems) { item in
+                // 柱形只展示今天自然日内每小时的按键次数。
+                // 这条数据不读取当前统计 scope，所以不会被“每日重置”开关切成累计历史。
+                BarMark(
+                    x: .value("小时", item.hour),
+                    y: .value("今日按键次数", item.count)
+                )
+                .foregroundStyle(barColor(for: item))
+                .cornerRadius(4)
+            }
+
+            ForEach(yesterdayItems) { item in
+                // 折线只展示昨天自然日内每小时的按键次数，用来和今天的柱形做同小时对照。
+                LineMark(
+                    x: .value("小时", item.hour),
+                    y: .value("昨日按键次数", item.count)
+                )
+                .foregroundStyle(Color.orange)
+                .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.catmullRom)
+
+                if item.count > 0 {
+                    PointMark(
+                        x: .value("昨日小时", item.hour),
+                        y: .value("昨日次数", item.count)
+                    )
+                    .foregroundStyle(Color.orange)
+                    .symbolSize(item.count == maxCount ? 70 : 28)
+                }
+            }
+        }
+        .chartYScale(domain: 0...maxCount)
+        .chartXAxis {
+            AxisMarks(values: [0, 3, 6, 9, 12, 15, 18, 21, 23]) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let hour = value.as(Int.self) {
+                        Text("\(hour)点")
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { _ in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel()
+            }
+        }
+        .overlay {
+            if todayItems.allSatisfy({ $0.count == 0 }) && yesterdayItems.allSatisfy({ $0.count == 0 }) {
+                EmptyHint(title: "还没有分时数据", systemImage: "chart.bar.xaxis")
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.84))
+            }
+        }
+    }
+
+    private func barColor(for item: HourlyKeystrokeItem) -> Color {
+        // 颜色只随当前小时在全天峰值中的占比变化：
+        // 低占比保持安静蓝色，高占比过渡到暖橙，避免用户把普通波动误看成异常告警。
+        let ratio = Double(item.count) / Double(maxCount)
+        return Color(hue: 0.56 - ratio * 0.46, saturation: 0.72, brightness: 0.92)
+            .opacity(item.count == 0 ? 0.18 : 0.78)
+    }
+}
+
+struct HourlyChartLegend: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            Label("柱形表示今日每小时按键次数", systemImage: "chart.bar.fill")
+            Label("折线表示昨日每小时按键次数", systemImage: "waveform.path.ecg")
+            Label("高亮点表示昨日峰值", systemImage: "smallcircle.filled.circle")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
+struct HourlyInsightStrip: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var peakItem: HourlyKeystrokeItem? {
+        // 全部为 0 时不强行选 0 点作为峰值，避免空数据时给出误导性的“最忙时段”。
+        model.snapshot.hourlyKeystrokes
+            .filter { $0.count > 0 }
+            .max { $0.count < $1.count }
+    }
+
+    private var risingItem: HourlyKeystrokeItem? {
+        // 只看正增长；如果所有小时都没有增长，就显示空态文案。
+        model.snapshot.hourlyKeystrokes
+            .filter { $0.deltaFromPreviousHour > 0 }
+            .max { $0.deltaFromPreviousHour < $1.deltaFromPreviousHour }
+    }
+
+    private var totalCount: Int {
+        model.snapshot.hourlyKeystrokes.reduce(0) { $0 + $1.count }
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                insightCards
+            }
+
+            VStack(spacing: 14) {
+                insightCards
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var insightCards: some View {
+        StatCard(
+            title: "今日分时总按键",
+            value: totalCount.formatted(),
+            symbol: "clock.badge.checkmark",
+            tint: .blue
+        )
+        StatCard(
+            title: "今日最忙小时",
+            value: peakItem.map { "\($0.hour)点" } ?? "-",
+            symbol: "flame",
+            tint: .orange
+        )
+        StatCard(
+            title: "今日升温最快",
+            value: risingItem.map { "+\($0.deltaFromPreviousHour.formatted())" } ?? "-",
+            symbol: "arrow.up.right",
+            tint: .green
+        )
+    }
+}
+
+struct TypingTimePersona {
+    let title: String
+    let message: String
+    let imageName: String
+    let icon: TimePersonaIconDesign
+    let tint: Color
+
+    static func resolve(from items: [HourlyKeystrokeItem]) -> TypingTimePersona {
+        let total = items.reduce(0) { $0 + $1.count }
+        guard total > 0 else {
+            return TypingTimePersona(
+                title: "键盘待机员",
+                message: "分时图还在等第一声敲击，今天的头衔先暂存。",
+                imageName: "persona_standby",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "keyboard",
+                    badgeSymbol: "moon.zzz.fill",
+                    textureSymbol: "pause.fill",
+                    accessibilityLabel: "键盘待机员图标"
+                ),
+                tint: .gray
+            )
+        }
+
+        let buckets = [
+            TimeBucket(name: "深夜", hours: [22, 23, 0, 1, 2, 3, 4]),
+            TimeBucket(name: "清晨", hours: [5, 6, 7, 8]),
+            TimeBucket(name: "上午", hours: [9, 10, 11]),
+            TimeBucket(name: "下午", hours: [12, 13, 14, 15, 16, 17]),
+            TimeBucket(name: "夜晚", hours: [18, 19, 20, 21])
+        ]
+
+        let winner = buckets.max { lhs, rhs in
+            averageCount(in: lhs, items: items) < averageCount(in: rhs, items: items)
+        }
+        let winningName = winner?.name ?? "未知"
+        let winningCount = winner.map { count(in: $0, items: items) } ?? 0
+        let winningRatio = Double(winningCount) / Double(total)
+        let peakHour = items.max { $0.count < $1.count }?.hour ?? 0
+
+        // 头衔优先看占比最高的时段，同时给深夜高峰一个更强判定：
+        // 只要深夜占比明显，或全天峰值落在 22 点到 4 点，就把用户归为夜间输入型。
+        if (winningName == "深夜" && winningRatio >= 0.30)
+            || ([22, 23, 0, 1, 2, 3, 4].contains(peakHour) && winningRatio >= 0.28) {
+            return TypingTimePersona(
+                title: "夜猫子敲击官",
+                message: "高频输入集中在深夜，灵感大概率喜欢挑灯上岗。",
+                imageName: "persona_night_owl",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "moon.stars.fill",
+                    badgeSymbol: "keyboard",
+                    textureSymbol: "sparkles",
+                    accessibilityLabel: "夜猫子敲击官图标"
+                ),
+                tint: .indigo
+            )
+        }
+
+        switch winningName {
+        case "清晨":
+            return TypingTimePersona(
+                title: "晨型键盘侠",
+                message: "别人还在醒神，你的键盘已经开始热身了。",
+                imageName: "persona_morning",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "sunrise.fill",
+                    badgeSymbol: "keyboard",
+                    textureSymbol: "sun.max.fill",
+                    accessibilityLabel: "晨型键盘侠图标"
+                ),
+                tint: .yellow
+            )
+        case "上午":
+            return TypingTimePersona(
+                title: "上午冲刺手",
+                message: "上午产能最稳，像是把咖啡直接接进了输入法。",
+                imageName: "persona_sprint",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "bolt.fill",
+                    badgeSymbol: "clock.fill",
+                    textureSymbol: "keyboard",
+                    accessibilityLabel: "上午冲刺手图标"
+                ),
+                tint: .teal
+            )
+        case "下午":
+            return TypingTimePersona(
+                title: "工位输出机",
+                message: "主要火力集中在下午，工作节奏非常标准，也非常响亮。",
+                imageName: "persona_workstation",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "briefcase.fill",
+                    badgeSymbol: "keyboard",
+                    textureSymbol: "clock.fill",
+                    accessibilityLabel: "工位输出机图标"
+                ),
+                tint: .blue
+            )
+        case "夜晚":
+            return TypingTimePersona(
+                title: "黄金夜场码字人",
+                message: "夜晚才是主场，白天铺垫，晚上开敲。",
+                imageName: "persona_evening",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "sparkles",
+                    badgeSymbol: "moon.fill",
+                    textureSymbol: "keyboard",
+                    accessibilityLabel: "黄金夜场码字人图标"
+                ),
+                tint: .orange
+            )
+        default:
+            return TypingTimePersona(
+                title: "全天候指挥家",
+                message: "敲击分布比较均衡，输入节奏像排班一样稳定。",
+                imageName: "persona_all_day",
+                icon: TimePersonaIconDesign(
+                    primarySymbol: "clock.fill",
+                    badgeSymbol: "keyboard",
+                    textureSymbol: "arrow.trianglehead.clockwise",
+                    accessibilityLabel: "全天候指挥家图标"
+                ),
+                tint: .mint
+            )
+        }
+    }
+
+    private static func averageCount(in bucket: TimeBucket, items: [HourlyKeystrokeItem]) -> Double {
+        // 每个时段包含的小时数量不同，直接比较总数会偏向“小时更多”的时段。
+        // 用时段内平均每小时按键数做主判定，能更真实地找出用户在什么时间段最活跃。
+        guard !bucket.hours.isEmpty else {
+            return 0
+        }
+        return Double(count(in: bucket, items: items)) / Double(bucket.hours.count)
+    }
+
+    private static func count(in bucket: TimeBucket, items: [HourlyKeystrokeItem]) -> Int {
+        // 先把小时数组转成 Set，避免每个小时都在线性数组里查找；
+        // 24 个桶数据量不大，但这样写能清楚表达“按时段集合汇总”的意图。
+        let hourSet = Set(bucket.hours)
+        return items.reduce(0) { total, item in
+            hourSet.contains(item.hour) ? total + item.count : total
+        }
+    }
+}
+
+private struct TimeBucket {
+    let name: String
+    let hours: [Int]
 }
 
 struct CompactHeatmap: View {
@@ -1111,7 +1644,7 @@ struct SettingsView: View {
                 HStack {
                     Text("版本号")
                     Spacer()
-                    Text("v1.0.1")
+                    Text("v1.0.3")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }

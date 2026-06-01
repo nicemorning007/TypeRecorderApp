@@ -131,7 +131,11 @@ final class DatabaseStore: @unchecked Sendable {
         try flushPendingEventData(force: true)
         try upsertCurrentSessionIfNeeded(force: true)
 
-        let today = DateFormatter.typeRecorderDay.string(from: .now)
+        let calendar = Calendar.autoupdatingCurrent
+        let now = Date()
+        let today = DateFormatter.typeRecorderDay.string(from: now)
+        let yesterdayDate = calendar.date(byAdding: .day, value: -1, to: now) ?? now
+        let yesterday = DateFormatter.typeRecorderDay.string(from: yesterdayDate)
         let scopedEvents: [StoredKeystrokeEvent]
         let scopedSessions: [StoredTypingSession]
         let statsDateLabel: String
@@ -160,11 +164,16 @@ final class DatabaseStore: @unchecked Sendable {
         // 今日称号只看自然日当天的数据。即使用户关闭“每日 0 时自动重置统计”，
         // 这里也不能使用 scopedEvents，否则称号会被累计历史按键量直接顶到最高等级。
         let todayStatisticalEvents = eventsForStatistics(eventsByDate[today, default: []], filter: filter)
+        // 分时统计固定比较今天和昨天的自然日小时分布，不跟随“每日重置”开关切到累计数据。
+        // 这里仍然复用统计过滤设置，保证“排除功能键”等用户选择对所有统计图表保持一致。
+        let yesterdayStatisticalEvents = eventsForStatistics(eventsByDate[yesterday, default: []], filter: filter)
 
         return AppSnapshot(
             realtime: realtimeStats(for: statsDateLabel, events: statisticalEvents),
             daily: dailyStats(for: statsDateLabel, events: statisticalEvents, sessions: scopedSessions),
             todayKeystrokesCount: todayStatisticalEvents.count,
+            hourlyKeystrokes: hourlyKeystrokes(events: todayStatisticalEvents),
+            yesterdayHourlyKeystrokes: hourlyKeystrokes(events: yesterdayStatisticalEvents),
             frequencies: wordFrequency(limit: 300, events: statisticalEvents),
             applications: [],
             events: recentEvents(limit: 250, events: scopedEvents)
@@ -277,6 +286,32 @@ final class DatabaseStore: @unchecked Sendable {
             DateFormatter.typeRecorderDay.string(from: $0.startTime) == date
         }
         return dailyStats(for: date, events: events, sessions: sessions)
+    }
+
+    private func hourlyKeystrokes(events: [StoredKeystrokeEvent]) -> [HourlyKeystrokeItem] {
+        // 小时统计必须基于传进来的自然日 events，而不是直接读取 scopedEvents。
+        // 这样分时统计不会被“每日重置”开关影响；调用方负责传入今天或昨天的数据。
+        let calendar = Calendar.autoupdatingCurrent
+        var countsByHour = Array(repeating: 0, count: 24)
+
+        for event in events {
+            let hour = calendar.component(.hour, from: event.timestamp)
+            guard countsByHour.indices.contains(hour) else {
+                continue
+            }
+            countsByHour[hour] += 1
+        }
+
+        return countsByHour.indices.map { hour in
+            // 0 点没有同一天内的上一小时，所以把上一小时按 0 处理；
+            // 这样趋势变化表达的是“从当天开始到当前小时”的自然增量，而不是跨天回绕。
+            let previousHourCount = hour == 0 ? 0 : countsByHour[hour - 1]
+            return HourlyKeystrokeItem(
+                hour: hour,
+                count: countsByHour[hour],
+                previousHourCount: previousHourCount
+            )
+        }
     }
 
     private func eventsForStatistics(

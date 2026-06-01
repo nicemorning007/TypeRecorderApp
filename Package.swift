@@ -14,7 +14,8 @@ let package = Package(
         .executableTarget(
             name: "TypeRecorder",
             resources: [
-                .copy("Resources/mm_reward_qrcode.png")
+                .copy("Resources/mm_reward_qrcode.png"),
+                .copy("Resources/TimePersonaBadges")
             ],
             linkerSettings: [
                 // Xcode 直接运行 SwiftPM executable 时不会自动生成 .app 主 bundle。

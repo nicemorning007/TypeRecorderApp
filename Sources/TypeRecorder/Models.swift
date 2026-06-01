@@ -3,6 +3,7 @@ import SwiftUI
 
 enum SidebarRoute: String, CaseIterable, Identifiable {
     case dashboard
+    case hourly
     case keyboard
     case keyboard3D
     case events
@@ -13,6 +14,7 @@ enum SidebarRoute: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .dashboard: "总览"
+        case .hourly: "分时统计"
         case .keyboard: "键盘热力图"
         case .keyboard3D: "3D键盘热力图"
         case .events: "事件明细"
@@ -23,6 +25,7 @@ enum SidebarRoute: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .dashboard: "gauge.with.dots.needle.67percent"
+        case .hourly: "chart.xyaxis.line"
         case .keyboard: "keyboard"
         case .keyboard3D: "cube.transparent"
         case .events: "list.bullet.rectangle"
@@ -99,6 +102,23 @@ struct DailyStats: Identifiable, Equatable, Sendable {
     let totalSessions: Int
 }
 
+struct HourlyKeystrokeItem: Identifiable, Equatable, Sendable {
+    // hour 使用 0...23 的自然小时，id 也直接复用 hour。
+    // 这样 SwiftUI 图表和 ForEach 都能稳定识别同一个小时，不会因为刷新统计而产生跳动。
+    var id: Int { hour }
+    let hour: Int
+    let count: Int
+    let previousHourCount: Int
+
+    var hourLabel: String {
+        String(format: "%02d:00", hour)
+    }
+
+    var deltaFromPreviousHour: Int {
+        count - previousHourCount
+    }
+}
+
 struct WordFrequencyItem: Identifiable, Equatable, Sendable {
     var id: String { "\(word)-\(type.rawValue)" }
     let word: String
@@ -147,6 +167,10 @@ struct AppSnapshot: Equatable, Sendable {
     )
     // 首页成就称号永远按“今天”的按键量计算，不能跟随“累计数据”统计口径一起变成历史总量。
     var todayKeystrokesCount: Int = 0
+    // 分时统计永远按自然日计算，不跟随“每日 0 时自动重置统计”的今日/累计口径切换。
+    // hourlyKeystrokes 表示今天 0...23 点，yesterdayHourlyKeystrokes 表示昨天 0...23 点。
+    var hourlyKeystrokes: [HourlyKeystrokeItem] = []
+    var yesterdayHourlyKeystrokes: [HourlyKeystrokeItem] = []
     var frequencies: [WordFrequencyItem] = []
     var applications: [ApplicationUsageItem] = []
     var events: [KeystrokeEventItem] = []

@@ -18,6 +18,7 @@ cp "$ROOT_DIR/.build/release/TypeRecorder" "$MACOS_DIR/TypeRecorder"
 cp "$ROOT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/Resources/TypeRecorderIcon.icns" "$RESOURCES_DIR/TypeRecorderIcon.icns"
 cp -R "$ROOT_DIR/Resources/AchievementBadges" "$RESOURCES_DIR/AchievementBadges"
+cp -R "$ROOT_DIR/Sources/TypeRecorder/Resources/TimePersonaBadges" "$RESOURCES_DIR/TimePersonaBadges"
 cp "$ROOT_DIR/Resources/mm_reward_qrcode.png" "$RESOURCES_DIR/mm_reward_qrcode.png"
 chmod +x "$MACOS_DIR/TypeRecorder"
 
