@@ -74,6 +74,26 @@ final class AppModel: ObservableObject {
         snapshot.realtime.sessionID.isEmpty ? "未创建" : snapshot.realtime.sessionID
     }
 
+    var isViewingToday: Bool {
+        Calendar.autoupdatingCurrent.isDateInToday(selectedDate)
+    }
+
+    var canMoveSelectedDateForward: Bool {
+        // 日期切换只允许回看“今天及以前”的数据。
+        // 这里用自然日比较，而不是直接比较 Date 秒数，避免今天早上选择器的时间早于当前时间时误判。
+        !isViewingToday
+    }
+
+    var selectedDateTitle: String {
+        if Calendar.autoupdatingCurrent.isDateInToday(selectedDate) {
+            return "今天"
+        }
+        if Calendar.autoupdatingCurrent.isDateInYesterday(selectedDate) {
+            return "昨天"
+        }
+        return DateFormatter.typeRecorderDay.string(from: selectedDate)
+    }
+
     func startMonitoring() {
         // SwiftUI 的 Toggle/Button 可能正在 view update 中调用这里。
         // 延迟到下一轮主队列，避免同步发布 @Published 触发未定义行为警告。
@@ -129,6 +149,28 @@ final class AppModel: ObservableObject {
         Task {
             await refresh()
         }
+    }
+
+    func setSelectedDate(_ date: Date) {
+        let normalizedDate = normalizedSelectableDate(date)
+        guard DateFormatter.typeRecorderDay.string(from: normalizedDate) != DateFormatter.typeRecorderDay.string(from: selectedDate) else {
+            return
+        }
+
+        selectedDate = normalizedDate
+        Task {
+            await refresh()
+        }
+    }
+
+    func moveSelectedDate(by dayOffset: Int) {
+        let calendar = Calendar.autoupdatingCurrent
+        let movedDate = calendar.date(byAdding: .day, value: dayOffset, to: selectedDate) ?? selectedDate
+        setSelectedDate(movedDate)
+    }
+
+    func resetSelectedDateToToday() {
+        setSelectedDate(.now)
     }
 
     func setDailyResetEnabled(_ isEnabled: Bool) {
@@ -221,11 +263,23 @@ final class AppModel: ObservableObject {
     }
 
     var statisticsScopeTitle: String {
-        isDailyResetEnabled ? "今日数据" : "累计数据"
+        switch currentStatisticsScope {
+        case .day:
+            "\(selectedDateTitle)数据"
+        case .allDates:
+            "累计数据"
+        }
     }
 
     private var currentStatisticsScope: StatisticsScope {
-        isDailyResetEnabled ? .today : .allDates
+        // 保持原有设置逻辑：
+        // 1. 开启“每日 0 时自动重置统计”时，首页默认看今天，切换日期后看对应自然日。
+        // 2. 关闭该设置且仍停留在今天时，沿用旧行为展示累计数据。
+        // 3. 即使关闭每日重置，只要用户主动切到历史日期，也按那一天回看，满足历史复盘需求。
+        if isDailyResetEnabled || !isViewingToday {
+            return .day(DateFormatter.typeRecorderDay.string(from: selectedDate))
+        }
+        return .allDates
     }
 
     private var currentStatisticsFilter: StatisticsFilter {
@@ -255,6 +309,16 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async {
             changes()
         }
+    }
+
+    private func normalizedSelectableDate(_ date: Date) -> Date {
+        let calendar = Calendar.autoupdatingCurrent
+        let todayStart = calendar.startOfDay(for: .now)
+        let pickedDayStart = calendar.startOfDay(for: date)
+
+        // 用户只能回看历史，不能跳到未来日期。
+        // 如果 DatePicker 或键盘输入给了未来日期，就温和地压回今天。
+        return pickedDayStart > todayStart ? todayStart : pickedDayStart
     }
 
     private func observeMonitorStateChanges() {

@@ -125,29 +125,33 @@ final class DatabaseStore: @unchecked Sendable {
         try upsertCurrentSessionIfNeeded(force: false)
     }
 
-    func snapshot(scope: StatisticsScope = .today, filter: StatisticsFilter = .none) throws -> AppSnapshot {
+    func snapshot(
+        scope: StatisticsScope = .day(DateFormatter.typeRecorderDay.string(from: .now)),
+        filter: StatisticsFilter = .none
+    ) throws -> AppSnapshot {
         lock.lock()
         defer { lock.unlock() }
         try flushPendingEventData(force: true)
         try upsertCurrentSessionIfNeeded(force: true)
 
         let calendar = Calendar.autoupdatingCurrent
-        let now = Date()
-        let today = DateFormatter.typeRecorderDay.string(from: now)
-        let yesterdayDate = calendar.date(byAdding: .day, value: -1, to: now) ?? now
-        let yesterday = DateFormatter.typeRecorderDay.string(from: yesterdayDate)
         let scopedEvents: [StoredKeystrokeEvent]
         let scopedSessions: [StoredTypingSession]
         let statsDateLabel: String
+        let selectedDay: String
+        let previousDay: String
 
         switch scope {
-        case .today:
+        case .day(let day):
             // 每日重置只影响统计口径：底层事件依然按 yyyy-MM-dd 文件分天保存。
-            scopedEvents = eventsByDate[today, default: []]
+            // 现在 scope 可以明确指定某一天，所以首页切换日期时不需要移动或改写任何历史文件。
+            scopedEvents = eventsByDate[day, default: []]
             scopedSessions = sessionsCache.filter {
-                DateFormatter.typeRecorderDay.string(from: $0.startTime) == today
+                DateFormatter.typeRecorderDay.string(from: $0.startTime) == day
             }
-            statsDateLabel = today
+            statsDateLabel = day
+            selectedDay = day
+            previousDay = Self.previousDayString(before: day, calendar: calendar)
         case .allDates:
             // 关闭每日重置时不改写历史数据，只把所有日期的事件合并后再计算展示统计。
             scopedEvents = eventsByDate
@@ -156,24 +160,26 @@ final class DatabaseStore: @unchecked Sendable {
                 .flatMap { eventsByDate[$0, default: []] }
             scopedSessions = sessionsCache
             statsDateLabel = "累计"
+            selectedDay = DateFormatter.typeRecorderDay.string(from: .now)
+            previousDay = Self.previousDayString(before: selectedDay, calendar: calendar)
         }
 
         // 过滤只服务统计展示。scopedEvents 仍然保留完整原始记录，用于“最近输入”和“事件明细”，
         // 避免设置开关反过来影响真实数据留存或用户回看明细。
         let statisticalEvents = eventsForStatistics(scopedEvents, filter: filter)
-        // 今日称号只看自然日当天的数据。即使用户关闭“每日 0 时自动重置统计”，
-        // 这里也不能使用 scopedEvents，否则称号会被累计历史按键量直接顶到最高等级。
-        let todayStatisticalEvents = eventsForStatistics(eventsByDate[today, default: []], filter: filter)
-        // 分时统计固定比较今天和昨天的自然日小时分布，不跟随“每日重置”开关切到累计数据。
+        // 成就称号只看当前查看自然日的数据。即使用户关闭“每日 0 时自动重置统计”，
+        // 这里也不能使用累计 scopedEvents，否则称号会被历史总按键量直接顶到最高等级。
+        let selectedDayStatisticalEvents = eventsForStatistics(eventsByDate[selectedDay, default: []], filter: filter)
+        // 分时统计固定比较所选日期和前一天的自然日小时分布，不跟随“每日重置”开关切到累计数据。
         // 这里仍然复用统计过滤设置，保证“排除功能键”等用户选择对所有统计图表保持一致。
-        let yesterdayStatisticalEvents = eventsForStatistics(eventsByDate[yesterday, default: []], filter: filter)
+        let previousDayStatisticalEvents = eventsForStatistics(eventsByDate[previousDay, default: []], filter: filter)
 
         return AppSnapshot(
             realtime: realtimeStats(for: statsDateLabel, events: statisticalEvents),
             daily: dailyStats(for: statsDateLabel, events: statisticalEvents, sessions: scopedSessions),
-            todayKeystrokesCount: todayStatisticalEvents.count,
-            hourlyKeystrokes: hourlyKeystrokes(events: todayStatisticalEvents),
-            yesterdayHourlyKeystrokes: hourlyKeystrokes(events: yesterdayStatisticalEvents),
+            selectedDayKeystrokesCount: selectedDayStatisticalEvents.count,
+            hourlyKeystrokes: hourlyKeystrokes(events: selectedDayStatisticalEvents),
+            yesterdayHourlyKeystrokes: hourlyKeystrokes(events: previousDayStatisticalEvents),
             frequencies: wordFrequency(limit: 300, events: statisticalEvents),
             applications: [],
             events: recentEvents(limit: 250, events: scopedEvents)
@@ -381,6 +387,14 @@ final class DatabaseStore: @unchecked Sendable {
 
     private func eventFileURL(for date: String) -> URL {
         eventsDirectory.appendingPathComponent("\(date).jsonl")
+    }
+
+    private static func previousDayString(before day: String, calendar: Calendar) -> String {
+        // 这里先用统一的 yyyy-MM-dd formatter 解析，再由 Calendar 往前减一天。
+        // 如果历史文件名异常导致解析失败，就回退到今天的前一天，避免整份快照因为一个标签崩掉。
+        let referenceDate = DateFormatter.typeRecorderDay.date(from: day) ?? .now
+        let previousDate = calendar.date(byAdding: .day, value: -1, to: referenceDate) ?? referenceDate
+        return DateFormatter.typeRecorderDay.string(from: previousDate)
     }
 
     private func eventFiles() throws -> [URL] {

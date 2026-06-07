@@ -132,15 +132,69 @@ struct HeaderStrip: View {
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
+                    DateNavigationControl()
                     HeaderStatusPills()
                 }
                 VStack(alignment: .trailing, spacing: 8) {
+                    DateNavigationControl()
                     HeaderStatusPills()
                 }
             }
         }
         .padding(18)
         .glassPanel()
+    }
+}
+
+struct DateNavigationControl: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                model.moveSelectedDate(by: -1)
+            } label: {
+                Label("前一天", systemImage: "chevron.left")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .help("查看前一天数据")
+
+            DatePicker(
+                "统计日期",
+                selection: Binding(
+                    get: { model.selectedDate },
+                    set: { model.setSelectedDate($0) }
+                ),
+                in: ...Date(),
+                displayedComponents: .date
+            )
+            // DatePicker 自己已经会展示日期；隐藏文字标签可以让头部保持紧凑。
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .frame(width: 146)
+            .help("选择要回看的统计日期")
+
+            Button {
+                model.moveSelectedDate(by: 1)
+            } label: {
+                Label("后一天", systemImage: "chevron.right")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!model.canMoveSelectedDateForward)
+            .help("查看后一天数据")
+
+            Button {
+                model.resetSelectedDateToToday()
+            } label: {
+                Label("回到今天", systemImage: "calendar.badge.clock")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.isViewingToday)
+            .help("回到今天")
+        }
     }
 }
 
@@ -228,19 +282,19 @@ struct DailyAchievementTitle {
     }
 
     static let all: [DailyAchievementTitle] = [
-        DailyAchievementTitle(level: 1, title: "今日挂机中", message: "键盘：我今天放假？", symbol: "moon.zzz.fill", tint: .gray),
+        DailyAchievementTitle(level: 1, title: "这天挂机中", message: "键盘：这天放假？", symbol: "moon.zzz.fill", tint: .gray),
         DailyAchievementTitle(level: 2, title: "轻点两下", message: "手指已上线，状态待热身", symbol: "hand.tap.fill", tint: .green),
         DailyAchievementTitle(level: 3, title: "摸鱼打字员", message: "看起来在忙，其实刚开始", symbol: "cursorarrow.click.2", tint: .teal),
-        DailyAchievementTitle(level: 4, title: "办公室敲击者", message: "今天已经有点声音了", symbol: "briefcase.fill", tint: .blue),
+        DailyAchievementTitle(level: 4, title: "办公室敲击者", message: "这天已经有点声音了", symbol: "briefcase.fill", tint: .blue),
         DailyAchievementTitle(level: 5, title: "文档搬砖人", message: "字不是自己出来的", symbol: "doc.text.fill", tint: .brown),
-        DailyAchievementTitle(level: 6, title: "键盘冒烟选手", message: "今日输出量有点东西", symbol: "flame.fill", tint: .orange),
+        DailyAchievementTitle(level: 6, title: "键盘冒烟选手", message: "这天输出量有点东西", symbol: "flame.fill", tint: .orange),
         DailyAchievementTitle(level: 7, title: "指尖永动机", message: "停不下来，根本停不下来", symbol: "infinity", tint: .mint),
         DailyAchievementTitle(level: 8, title: "人形输入法", message: "想法刚出现，字已经到了", symbol: "sparkles", tint: .indigo),
-        DailyAchievementTitle(level: 9, title: "键盘破坏者", message: "今天的键盘承受了太多", symbol: "bolt.fill", tint: .red)
+        DailyAchievementTitle(level: 9, title: "键盘破坏者", message: "这天的键盘承受了太多", symbol: "bolt.fill", tint: .red)
     ]
 
     static func resolve(for keystrokes: Int) -> DailyAchievementTitle {
-        // 称号只按“今日按键次数”命中区间，不暴露下一等级门槛，给用户保留探索空间。
+        // 称号只按“当前查看日期的按键次数”命中区间，不暴露下一等级门槛，给用户保留探索空间。
         switch keystrokes {
         case 70_000...:
             all[8]
@@ -268,7 +322,7 @@ struct AchievementCard: View {
     @EnvironmentObject private var model: AppModel
 
     private var achievement: DailyAchievementTitle {
-        DailyAchievementTitle.resolve(for: model.snapshot.todayKeystrokesCount)
+        DailyAchievementTitle.resolve(for: model.snapshot.selectedDayKeystrokesCount)
     }
 
     var body: some View {
@@ -437,7 +491,7 @@ struct TimePersonaCard: View {
             HStack {
                 Spacer()
 
-                Text("今日")
+                Text(model.selectedDateTitle)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -604,9 +658,9 @@ struct HourlyKeystrokePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 10 : 14) {
             HStack(alignment: .firstTextBaseline) {
-                SectionHeader(title: "今日按键与昨日趋势", symbol: "chart.xyaxis.line")
+                SectionHeader(title: "\(model.selectedDateTitle)按键与前一天趋势", symbol: "chart.xyaxis.line")
                 Spacer()
-                Text("不受每日重置影响")
+                Text("按自然日对比")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -638,21 +692,21 @@ struct HourlyKeystrokeChart: View {
     var body: some View {
         Chart {
             ForEach(todayItems) { item in
-                // 柱形只展示今天自然日内每小时的按键次数。
+                // 柱形只展示当前查看自然日内每小时的按键次数。
                 // 这条数据不读取当前统计 scope，所以不会被“每日重置”开关切成累计历史。
                 BarMark(
                     x: .value("小时", item.hour),
-                    y: .value("今日按键次数", item.count)
+                    y: .value("所选日期按键次数", item.count)
                 )
                 .foregroundStyle(barColor(for: item))
                 .cornerRadius(4)
             }
 
             ForEach(yesterdayItems) { item in
-                // 折线只展示昨天自然日内每小时的按键次数，用来和今天的柱形做同小时对照。
+                // 折线只展示前一天自然日内每小时的按键次数，用来和所选日期的柱形做同小时对照。
                 LineMark(
                     x: .value("小时", item.hour),
-                    y: .value("昨日按键次数", item.count)
+                    y: .value("前一天按键次数", item.count)
                 )
                 .foregroundStyle(Color.orange)
                 .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
@@ -660,8 +714,8 @@ struct HourlyKeystrokeChart: View {
 
                 if item.count > 0 {
                     PointMark(
-                        x: .value("昨日小时", item.hour),
-                        y: .value("昨日次数", item.count)
+                        x: .value("前一天小时", item.hour),
+                        y: .value("前一天次数", item.count)
                     )
                     .foregroundStyle(Color.orange)
                     .symbolSize(item.count == maxCount ? 70 : 28)
@@ -707,9 +761,9 @@ struct HourlyKeystrokeChart: View {
 struct HourlyChartLegend: View {
     var body: some View {
         HStack(spacing: 16) {
-            Label("柱形表示今日每小时按键次数", systemImage: "chart.bar.fill")
-            Label("折线表示昨日每小时按键次数", systemImage: "waveform.path.ecg")
-            Label("高亮点表示昨日峰值", systemImage: "smallcircle.filled.circle")
+            Label("柱形表示所选日期每小时按键次数", systemImage: "chart.bar.fill")
+            Label("折线表示前一天每小时按键次数", systemImage: "waveform.path.ecg")
+            Label("高亮点表示前一天峰值", systemImage: "smallcircle.filled.circle")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -752,19 +806,19 @@ struct HourlyInsightStrip: View {
     @ViewBuilder
     private var insightCards: some View {
         StatCard(
-            title: "今日分时总按键",
+            title: "\(model.selectedDateTitle)分时总按键",
             value: totalCount.formatted(),
             symbol: "clock.badge.checkmark",
             tint: .blue
         )
         StatCard(
-            title: "今日最忙小时",
+            title: "\(model.selectedDateTitle)最忙小时",
             value: peakItem.map { "\($0.hour)点" } ?? "-",
             symbol: "flame",
             tint: .orange
         )
         StatCard(
-            title: "今日升温最快",
+            title: "\(model.selectedDateTitle)升温最快",
             value: risingItem.map { "+\($0.deltaFromPreviousHour.formatted())" } ?? "-",
             symbol: "arrow.up.right",
             tint: .green
@@ -1644,7 +1698,7 @@ struct SettingsView: View {
                 HStack {
                     Text("版本号")
                     Spacer()
-                    Text("v1.0.3")
+                    Text("v1.0.4")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }

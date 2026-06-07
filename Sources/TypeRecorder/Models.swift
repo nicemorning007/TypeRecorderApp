@@ -165,10 +165,11 @@ struct AppSnapshot: Equatable, Sendable {
         totalDeletes: 0,
         totalSessions: 0
     )
-    // 首页成就称号永远按“今天”的按键量计算，不能跟随“累计数据”统计口径一起变成历史总量。
-    var todayKeystrokesCount: Int = 0
+    // 首页成就称号按“当前正在查看的自然日”计算。
+    // 这样用户切到历史日期时，称号会展示那一天的输入强度，而不是永远停留在今天。
+    var selectedDayKeystrokesCount: Int = 0
     // 分时统计永远按自然日计算，不跟随“每日 0 时自动重置统计”的今日/累计口径切换。
-    // hourlyKeystrokes 表示今天 0...23 点，yesterdayHourlyKeystrokes 表示昨天 0...23 点。
+    // hourlyKeystrokes 表示当前查看日期 0...23 点，yesterdayHourlyKeystrokes 表示前一天 0...23 点。
     var hourlyKeystrokes: [HourlyKeystrokeItem] = []
     var yesterdayHourlyKeystrokes: [HourlyKeystrokeItem] = []
     var frequencies: [WordFrequencyItem] = []
@@ -177,7 +178,7 @@ struct AppSnapshot: Equatable, Sendable {
 }
 
 enum StatisticsScope: Sendable {
-    case today
+    case day(String)
     case allDates
 }
 
